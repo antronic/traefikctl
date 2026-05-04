@@ -1,6 +1,6 @@
 [package]
 name = "traefikctl"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "CLI tool to manage Traefik reverse proxy dynamic configuration"
 license = "MIT"
@@ -17,6 +17,9 @@ colored = "2"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 url = "2"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 opt-level = "z"

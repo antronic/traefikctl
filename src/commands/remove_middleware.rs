@@ -54,3 +54,81 @@ pub fn execute(dir: &Path, opts: RemoveMiddlewareOptions) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_mw(dir: &Path, name: &str) {
+        let yaml = format!("http:\n  middlewares:\n    {name}:\n      compress: {{}}\n");
+        fs::write(dir.join(format!("mw-{name}.yml")), yaml).unwrap();
+    }
+
+    #[test]
+    fn remove_middleware_with_force() {
+        let dir = tempfile::tempdir().unwrap();
+        write_mw(dir.path(), "rm-mw");
+        assert!(dir.path().join("mw-rm-mw.yml").exists());
+
+        execute(
+            dir.path(),
+            RemoveMiddlewareOptions {
+                name: "rm-mw",
+                force: true,
+                dry_run: false,
+            },
+        )
+        .unwrap();
+
+        assert!(!dir.path().join("mw-rm-mw.yml").exists());
+    }
+
+    #[test]
+    fn remove_middleware_dry_run() {
+        let dir = tempfile::tempdir().unwrap();
+        write_mw(dir.path(), "dry-rm");
+
+        execute(
+            dir.path(),
+            RemoveMiddlewareOptions {
+                name: "dry-rm",
+                force: true,
+                dry_run: true,
+            },
+        )
+        .unwrap();
+
+        assert!(dir.path().join("mw-dry-rm.yml").exists());
+    }
+
+    #[test]
+    fn remove_middleware_missing_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = execute(
+            dir.path(),
+            RemoveMiddlewareOptions {
+                name: "ghost",
+                force: true,
+                dry_run: false,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn remove_middleware_validates_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = execute(
+            dir.path(),
+            RemoveMiddlewareOptions {
+                name: "bad name!",
+                force: true,
+                dry_run: false,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid character"));
+    }
+}

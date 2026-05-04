@@ -169,3 +169,73 @@ pub fn execute(dir: &Path) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_route(dir: &Path, name: &str) {
+        let yaml = format!(
+            "http:\n  routers:\n    {name}:\n      rule: \"Host(`{name}.test`)\"\n      entryPoints:\n      - web\n      service: {name}\n  services:\n    {name}:\n      loadBalancer:\n        servers:\n        - url: http://127.0.0.1:80\n"
+        );
+        fs::write(dir.join(format!("{name}.yml")), yaml).unwrap();
+    }
+
+    fn write_middleware(dir: &Path, name: &str) {
+        let yaml = format!(
+            "http:\n  middlewares:\n    {name}:\n      compress: {{}}\n"
+        );
+        fs::write(dir.join(format!("mw-{name}.yml")), yaml).unwrap();
+    }
+
+    #[test]
+    fn list_nonexistent_dir_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("nope");
+        execute(&gone).unwrap();
+    }
+
+    #[test]
+    fn list_empty_dir_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_routes_only() {
+        let dir = tempfile::tempdir().unwrap();
+        write_route(dir.path(), "app1");
+        write_route(dir.path(), "app2");
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_middlewares_only() {
+        let dir = tempfile::tempdir().unwrap();
+        write_middleware(dir.path(), "compress");
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_mixed_routes_and_middlewares() {
+        let dir = tempfile::tempdir().unwrap();
+        write_route(dir.path(), "myapp");
+        write_middleware(dir.path(), "headers");
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_ignores_non_yaml_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("notes.txt"), "not yaml").unwrap();
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_handles_malformed_yaml_gracefully() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("bad.yml"), "not: [valid: yaml: config").unwrap();
+        execute(dir.path()).unwrap();
+    }
+}

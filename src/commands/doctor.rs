@@ -215,3 +215,155 @@ pub fn execute(dir: &Path, traefik_config: Option<&Path>, dry_run: bool) -> Resu
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn find_traefik_config_override_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+        fs::write(&cfg_path, "providers: {}").unwrap();
+        assert_eq!(
+            find_traefik_config(Some(&cfg_path)),
+            Some(cfg_path)
+        );
+    }
+
+    #[test]
+    fn find_traefik_config_override_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("nope.yml");
+        assert_eq!(find_traefik_config(Some(&cfg_path)), None);
+    }
+
+    #[test]
+    fn find_traefik_config_no_override_no_candidates() {
+        assert_eq!(find_traefik_config(None), None);
+    }
+
+    #[test]
+    fn ensure_setup_creates_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        let cfg_path = dir.path().join("traefik.yml");
+
+        ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+
+        assert!(conf_d.exists());
+        assert!(cfg_path.exists());
+    }
+
+    #[test]
+    fn ensure_setup_creates_config_from_scratch() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        let cfg_path = dir.path().join("traefik.yml");
+
+        ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+
+        let content = fs::read_to_string(&cfg_path).unwrap();
+        let parsed: TraefikStaticConfig = serde_yaml::from_str(&content).unwrap();
+        let fp = parsed.providers.unwrap().file.unwrap();
+        assert_eq!(fp.directory, Some(conf_d.to_string_lossy().to_string()));
+        assert_eq!(fp.watch, Some(true));
+    }
+
+    #[test]
+    fn ensure_setup_fixes_wrong_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        fs::create_dir_all(&conf_d).unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+
+        let initial = "providers:\n  file:\n    directory: /wrong/path\n    watch: true\n";
+        fs::write(&cfg_path, initial).unwrap();
+
+        ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+
+        let content = fs::read_to_string(&cfg_path).unwrap();
+        assert!(content.contains(&conf_d.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn ensure_setup_fixes_missing_watch() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        fs::create_dir_all(&conf_d).unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+
+        let initial = format!(
+            "providers:\n  file:\n    directory: {}\n",
+            conf_d.display()
+        );
+        fs::write(&cfg_path, &initial).unwrap();
+
+        ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+
+        let content = fs::read_to_string(&cfg_path).unwrap();
+        assert!(content.contains("watch: true"));
+    }
+
+    #[test]
+    fn ensure_setup_all_ok_returns_true() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        fs::create_dir_all(&conf_d).unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+
+        let yaml = format!(
+            "providers:\n  file:\n    directory: {}\n    watch: true\n",
+            conf_d.display()
+        );
+        fs::write(&cfg_path, &yaml).unwrap();
+
+        let result = ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn ensure_setup_dry_run_no_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        let cfg_path = dir.path().join("traefik.yml");
+
+        let result = ensure_setup(&conf_d, Some(&cfg_path), true).unwrap();
+        assert!(!result);
+        assert!(!conf_d.exists());
+        assert!(!cfg_path.exists());
+    }
+
+    #[test]
+    fn ensure_setup_preserves_existing_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        fs::create_dir_all(&conf_d).unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+
+        let initial = "entryPoints:\n  web:\n    address: ':80'\nproviders:\n  file:\n    directory: /wrong\n";
+        fs::write(&cfg_path, initial).unwrap();
+
+        ensure_setup(&conf_d, Some(&cfg_path), false).unwrap();
+
+        let content = fs::read_to_string(&cfg_path).unwrap();
+        assert!(content.contains("entryPoints:"));
+        assert!(content.contains("':80'") || content.contains(":80"));
+    }
+
+    #[test]
+    fn execute_doctor_all_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let conf_d = dir.path().join("conf.d");
+        fs::create_dir_all(&conf_d).unwrap();
+        let cfg_path = dir.path().join("traefik.yml");
+        let yaml = format!(
+            "providers:\n  file:\n    directory: {}\n    watch: true\n",
+            conf_d.display()
+        );
+        fs::write(&cfg_path, &yaml).unwrap();
+
+        execute(&conf_d, Some(cfg_path.as_path()), false).unwrap();
+    }
+}
