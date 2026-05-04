@@ -1,0 +1,14 @@
+http:
+  middlewares:
+    headers:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: strict-origin-when-cross-origin
+        customResponseHeaders:
+          X-Powered-By: ""
+          Server: ""

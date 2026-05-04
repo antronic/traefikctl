@@ -1,0 +1,25 @@
+[package]
+name = "traefikctl"
+version = "0.1.0"
+edition = "2021"
+description = "CLI tool to manage Traefik reverse proxy dynamic configuration"
+license = "MIT"
+authors = ["traefikctl contributors"]
+
+[[bin]]
+name = "traefikctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+url = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
