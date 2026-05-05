@@ -1,6 +1,9 @@
 pub mod add;
+pub mod add_cert;
 pub mod add_middleware;
 pub mod doctor;
+pub mod init_acme;
+pub mod init_ca;
 pub mod list;
 pub mod remove;
 pub mod remove_middleware;

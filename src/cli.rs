@@ -11,6 +11,47 @@ pub enum MiddlewareType {
     Compress,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Protocol {
+    Http,
+    Tcp,
+    Udp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ServicePreset {
+    Postgres,
+    Mysql,
+    Mariadb,
+    Redis,
+    Mongodb,
+    Dns,
+    Mqtt,
+    Nats,
+    Syslog,
+}
+
+pub struct PresetDefaults {
+    pub protocol: Protocol,
+    pub port: u16,
+    pub entrypoint: &'static str,
+}
+
+impl ServicePreset {
+    pub fn defaults(&self) -> PresetDefaults {
+        match self {
+            Self::Postgres => PresetDefaults { protocol: Protocol::Tcp, port: 5432, entrypoint: "postgres" },
+            Self::Mysql | Self::Mariadb => PresetDefaults { protocol: Protocol::Tcp, port: 3306, entrypoint: "mysql" },
+            Self::Redis => PresetDefaults { protocol: Protocol::Tcp, port: 6379, entrypoint: "redis" },
+            Self::Mongodb => PresetDefaults { protocol: Protocol::Tcp, port: 27017, entrypoint: "mongodb" },
+            Self::Dns => PresetDefaults { protocol: Protocol::Udp, port: 53, entrypoint: "dns" },
+            Self::Mqtt => PresetDefaults { protocol: Protocol::Tcp, port: 1883, entrypoint: "mqtt" },
+            Self::Nats => PresetDefaults { protocol: Protocol::Tcp, port: 4222, entrypoint: "nats" },
+            Self::Syslog => PresetDefaults { protocol: Protocol::Udp, port: 514, entrypoint: "syslog" },
+        }
+    }
+}
+
 /// traefikctl — Manage Traefik dynamic configuration via the file provider
 #[derive(Parser, Debug)]
 #[command(name = "traefikctl", version, about, long_about = None)]
@@ -41,31 +82,47 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Add a new route
+    /// Add a new route (HTTP, TCP, or UDP)
     Add {
         /// Service name (used as filename and identifier)
         #[arg(short, long)]
         name: String,
 
-        /// Domain to route (e.g. app.example.com)
+        /// Protocol type (default: http)
+        #[arg(short, long, value_enum, default_value = "http")]
+        protocol: Protocol,
+
+        /// Use a service preset (sets protocol, port, and entrypoint automatically)
+        #[arg(long, value_enum)]
+        preset: Option<ServicePreset>,
+
+        /// Domain to route — required for HTTP, optional for TCP (HostSNI)
         #[arg(short = 'H', long)]
-        host: String,
+        host: Option<String>,
 
-        /// Backend URL (e.g. http://127.0.0.1:3000)
+        /// Backend URL — required for HTTP (e.g. http://127.0.0.1:3000)
         #[arg(short, long)]
-        url: String,
+        url: Option<String>,
 
-        /// Traefik entrypoint (default: web)
-        #[arg(short, long, default_value = "web")]
-        entrypoint: String,
+        /// Backend address — required for TCP/UDP (e.g. 10.0.0.1:5432)
+        #[arg(short, long)]
+        address: Option<String>,
 
-        /// Enable TLS (adds websecure entrypoint + certresolver)
+        /// Traefik entrypoint (default: web for HTTP, preset-specific for presets)
+        #[arg(short, long)]
+        entrypoint: Option<String>,
+
+        /// Enable TLS (HTTP: adds websecure entrypoint; TCP: adds tls section)
         #[arg(long, default_value_t = false)]
         tls: bool,
 
-        /// TLS certificate resolver name
-        #[arg(long, default_value = "letsencrypt")]
-        cert_resolver: String,
+        /// TLS passthrough — TCP only (forward encrypted traffic without termination)
+        #[arg(long, default_value_t = false)]
+        tls_passthrough: bool,
+
+        /// TLS certificate resolver name (omit to use default TLS store)
+        #[arg(long)]
+        cert_resolver: Option<String>,
 
         /// Middleware names to attach (comma-separated)
         #[arg(long)]
@@ -157,6 +214,95 @@ pub enum Commands {
         /// Middleware name to remove
         #[arg(short, long)]
         name: String,
+    },
+
+    /// Set up an ACME certificate resolver with DNS-01 challenge
+    InitAcme {
+        /// Resolver name (default: letsencrypt)
+        #[arg(long, default_value = "letsencrypt")]
+        resolver_name: String,
+
+        /// ACME account email
+        #[arg(short, long)]
+        email: String,
+
+        /// DNS challenge provider (lego provider code, e.g. cloudflare, route53, digitalocean)
+        #[arg(short, long)]
+        provider: String,
+
+        /// Use Let's Encrypt staging CA
+        #[arg(long, default_value_t = false)]
+        staging: bool,
+
+        /// ACME certificate storage path
+        #[arg(long, default_value = "/etc/traefik/acme.json")]
+        storage: String,
+
+        /// Custom DNS resolvers (e.g. 1.1.1.1:53, repeatable)
+        #[arg(long = "dns-resolver")]
+        dns_resolvers: Vec<String>,
+
+        /// Key type (RSA2048, RSA4096, EC256, EC384)
+        #[arg(long)]
+        key_type: Option<String>,
+
+        /// Seconds to wait before propagation check
+        #[arg(long)]
+        propagation_delay: Option<u64>,
+
+        /// Disable DNS propagation checks
+        #[arg(long, default_value_t = false)]
+        disable_propagation_check: bool,
+    },
+
+    /// Set up self-signed CA and default TLS certificate
+    InitCa {
+        /// Path to Root CA certificate file (.crt/.pem)
+        #[arg(long)]
+        ca_cert: String,
+
+        /// Path to Intermediate CA certificate file (optional)
+        #[arg(long)]
+        intermediate_cert: Option<String>,
+
+        /// Path to default server certificate file
+        #[arg(long)]
+        cert: String,
+
+        /// Path to default server private key file
+        #[arg(long)]
+        key: String,
+
+        /// Certificate storage directory
+        #[arg(long, default_value = "/etc/traefik/certs")]
+        certs_dir: String,
+
+        /// TLS options name for mTLS client verification
+        #[arg(long)]
+        mtls: bool,
+
+        /// Minimum TLS version (VersionTLS12, VersionTLS13)
+        #[arg(long)]
+        min_version: Option<String>,
+    },
+
+    /// Import a TLS certificate for a specific route
+    AddCert {
+        /// Route name to attach the certificate to
+        #[arg(short, long)]
+        name: String,
+
+        /// Path to server certificate file (.crt/.pem)
+        #[arg(long)]
+        cert: String,
+
+        /// Path to server private key file
+        #[arg(long)]
+        key: String,
+
+        /// Certificate storage directory
+        #[arg(long, default_value = "/etc/traefik/certs")]
+        certs_dir: String,
     },
 
     /// Update an existing route

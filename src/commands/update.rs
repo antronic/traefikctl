@@ -44,8 +44,12 @@ pub fn execute(dir: &Path, opts: UpdateOptions) -> Result<()> {
     let mut config: TraefikDynamicConfig = serde_yaml::from_str(&content)
         .with_context(|| format!("failed to parse {}", file_path.display()))?;
 
-    // Apply updates to router
-    if let Some(router) = config.http.routers.get_mut(opts.name) {
+    let http = config
+        .http
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("route {:?} is not an HTTP route — update only supports HTTP routes currently", opts.name))?;
+
+    if let Some(router) = http.routers.get_mut(opts.name) {
         if let Some(host) = opts.host {
             router.rule = format!("Host(`{host}`)");
         }
@@ -54,10 +58,7 @@ pub fn execute(dir: &Path, opts: UpdateOptions) -> Result<()> {
         }
         if let Some(enable_tls) = opts.tls {
             if enable_tls {
-                router.tls = Some(RouterTls {
-                    cert_resolver: "letsencrypt".to_string(),
-                });
-                // Add websecure entrypoint if not present
+                router.tls = Some(RouterTls::default());
                 if !router.entry_points.contains(&"websecure".to_string()) {
                     router.entry_points.push("websecure".to_string());
                 }
@@ -82,9 +83,8 @@ pub fn execute(dir: &Path, opts: UpdateOptions) -> Result<()> {
         bail!("router {:?} not found in config file", opts.name);
     }
 
-    // Apply updates to service
     if let Some(url) = opts.url {
-        if let Some(service) = config.http.services.get_mut(opts.name) {
+        if let Some(service) = http.services.get_mut(opts.name) {
             if let Some(server) = service.load_balancer.servers.first_mut() {
                 server.url = url.to_string();
             }
@@ -118,7 +118,7 @@ mod tests {
     use std::fs;
 
     fn create_route(dir: &Path, name: &str) {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             name,
             &format!("{name}.example.com"),
             &format!("http://{name}:80"),
@@ -199,20 +199,22 @@ mod tests {
         .unwrap();
 
         let content = fs::read_to_string(dir.path().join("tlsup.yml")).unwrap();
-        assert!(content.contains("certResolver:"));
+        assert!(content.contains("tls:"));
+        assert!(!content.contains("certResolver:"));
         assert!(content.contains("websecure"));
     }
 
     #[test]
     fn update_disable_tls() {
         let dir = tempfile::tempdir().unwrap();
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "tlsoff",
             "tlsoff.example.com",
             "http://tlsoff:80",
             vec!["web".into(), "websecure".into()],
             Some(RouterTls {
-                cert_resolver: "letsencrypt".to_string(),
+                cert_resolver: Some("letsencrypt".to_string()),
+                ..Default::default()
             }),
             None,
         );
@@ -268,7 +270,7 @@ mod tests {
     #[test]
     fn update_clear_middlewares() {
         let dir = tempfile::tempdir().unwrap();
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "clrmw",
             "clrmw.example.com",
             "http://clrmw:80",

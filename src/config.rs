@@ -3,11 +3,56 @@ use serde_yaml::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct TraefikStaticConfig {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub providers: Option<Providers>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificates_resolvers: Option<BTreeMap<String, CertificateResolver>>,
     #[serde(flatten)]
     pub rest: BTreeMap<String, Value>,
+}
+
+// ---------------------------------------------------------------------------
+// ACME / Certificate Resolver config (static config)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CertificateResolver {
+    pub acme: AcmeConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AcmeConfig {
+    pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_server: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns_challenge: Option<DnsChallenge>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsChallenge {
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolvers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub propagation: Option<DnsPropagation>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsPropagation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_before_checks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_checks: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -30,8 +75,148 @@ pub struct FileProvider {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TraefikDynamicConfig {
-    pub http: HttpConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<HttpConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp: Option<TcpConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp: Option<UdpConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TlsConfig>,
 }
+
+// ---------------------------------------------------------------------------
+// TLS dynamic config (certificates, stores, options)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TlsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificates: Option<Vec<TlsCertificate>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stores: Option<BTreeMap<String, TlsStore>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<BTreeMap<String, TlsOptions>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TlsCertificate {
+    pub cert_file: String,
+    pub key_file: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TlsStore {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_certificate: Option<TlsCertificate>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TlsOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_auth: Option<ClientAuth>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientAuth {
+    pub ca_files: Vec<String>,
+    pub client_auth_type: String,
+}
+
+// ---------------------------------------------------------------------------
+// TCP dynamic config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TcpConfig {
+    pub routers: BTreeMap<String, TcpRouter>,
+    pub services: BTreeMap<String, TcpService>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TcpRouter {
+    pub rule: String,
+    pub entry_points: Vec<String>,
+    pub service: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TcpRouterTls>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub middlewares: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TcpRouterTls {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passthrough: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_resolver: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TcpService {
+    pub load_balancer: TcpLoadBalancer,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TcpLoadBalancer {
+    pub servers: Vec<TcpServer>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TcpServer {
+    pub address: String,
+}
+
+// ---------------------------------------------------------------------------
+// UDP dynamic config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UdpConfig {
+    pub routers: BTreeMap<String, UdpRouter>,
+    pub services: BTreeMap<String, UdpService>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UdpRouter {
+    pub entry_points: Vec<String>,
+    pub service: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UdpService {
+    pub load_balancer: UdpLoadBalancer,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UdpLoadBalancer {
+    pub servers: Vec<UdpServer>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UdpServer {
+    pub address: String,
+}
+
+// ---------------------------------------------------------------------------
+// HTTP dynamic config
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HttpConfig {
@@ -51,10 +236,13 @@ pub struct Router {
     pub middlewares: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RouterTls {
-    pub cert_resolver: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_resolver: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -309,7 +497,7 @@ impl MiddlewareDefinition {
 // ---------------------------------------------------------------------------
 
 impl TraefikDynamicConfig {
-    pub fn new(
+    pub fn new_http(
         name: &str,
         host: &str,
         backend_url: &str,
@@ -342,19 +530,110 @@ impl TraefikDynamicConfig {
         );
 
         Self {
-            http: HttpConfig { routers, services },
+            http: Some(HttpConfig { routers, services }),
+            tcp: None,
+            udp: None,
+            tls: None,
         }
     }
 
-    /// Returns the first router name (the service/route name).
-    pub fn route_name(&self) -> Option<&str> {
-        self.http.routers.keys().next().map(|s| s.as_str())
+    pub fn new_tcp(
+        name: &str,
+        rule: &str,
+        address: &str,
+        entrypoints: Vec<String>,
+        tls: Option<TcpRouterTls>,
+    ) -> Self {
+        let mut routers = BTreeMap::new();
+        routers.insert(
+            name.to_string(),
+            TcpRouter {
+                rule: rule.to_string(),
+                entry_points: entrypoints,
+                service: name.to_string(),
+                tls,
+                middlewares: None,
+                priority: None,
+            },
+        );
+
+        let mut services = BTreeMap::new();
+        services.insert(
+            name.to_string(),
+            TcpService {
+                load_balancer: TcpLoadBalancer {
+                    servers: vec![TcpServer {
+                        address: address.to_string(),
+                    }],
+                },
+            },
+        );
+
+        Self {
+            http: None,
+            tcp: Some(TcpConfig { routers, services }),
+            udp: None,
+            tls: None,
+        }
     }
 
-    /// Returns the host from the first router rule.
+    pub fn new_udp(name: &str, address: &str, entrypoints: Vec<String>) -> Self {
+        let mut routers = BTreeMap::new();
+        routers.insert(
+            name.to_string(),
+            UdpRouter {
+                entry_points: entrypoints,
+                service: name.to_string(),
+            },
+        );
+
+        let mut services = BTreeMap::new();
+        services.insert(
+            name.to_string(),
+            UdpService {
+                load_balancer: UdpLoadBalancer {
+                    servers: vec![UdpServer {
+                        address: address.to_string(),
+                    }],
+                },
+            },
+        );
+
+        Self {
+            http: None,
+            tcp: None,
+            udp: Some(UdpConfig { routers, services }),
+            tls: None,
+        }
+    }
+
+    pub fn route_name(&self) -> Option<&str> {
+        if let Some(http) = &self.http {
+            return http.routers.keys().next().map(|s| s.as_str());
+        }
+        if let Some(tcp) = &self.tcp {
+            return tcp.routers.keys().next().map(|s| s.as_str());
+        }
+        if let Some(udp) = &self.udp {
+            return udp.routers.keys().next().map(|s| s.as_str());
+        }
+        None
+    }
+
+    pub fn protocol(&self) -> &'static str {
+        if self.http.is_some() {
+            "http"
+        } else if self.tcp.is_some() {
+            "tcp"
+        } else if self.udp.is_some() {
+            "udp"
+        } else {
+            "unknown"
+        }
+    }
+
     pub fn host(&self) -> Option<String> {
-        self.http.routers.values().next().and_then(|r| {
-            // Parse Host(`example.com`) → example.com
+        self.http.as_ref()?.routers.values().next().and_then(|r| {
             r.rule
                 .strip_prefix("Host(`")
                 .and_then(|s| s.strip_suffix("`)"))
@@ -362,9 +641,18 @@ impl TraefikDynamicConfig {
         })
     }
 
-    /// Returns the backend URL from the first service.
+    pub fn tcp_rule(&self) -> Option<&str> {
+        self.tcp
+            .as_ref()?
+            .routers
+            .values()
+            .next()
+            .map(|r| r.rule.as_str())
+    }
+
     pub fn backend_url(&self) -> Option<&str> {
         self.http
+            .as_ref()?
             .services
             .values()
             .next()
@@ -372,7 +660,26 @@ impl TraefikDynamicConfig {
             .map(|s| s.url.as_str())
     }
 
-    /// Serialize to YAML string.
+    pub fn backend_address(&self) -> Option<&str> {
+        if let Some(tcp) = &self.tcp {
+            return tcp
+                .services
+                .values()
+                .next()
+                .and_then(|s| s.load_balancer.servers.first())
+                .map(|s| s.address.as_str());
+        }
+        if let Some(udp) = &self.udp {
+            return udp
+                .services
+                .values()
+                .next()
+                .and_then(|s| s.load_balancer.servers.first())
+                .map(|s| s.address.as_str());
+        }
+        None
+    }
+
     pub fn to_yaml(&self) -> anyhow::Result<String> {
         Ok(serde_yaml::to_string(self)?)
     }
@@ -384,7 +691,7 @@ mod tests {
 
     #[test]
     fn dynamic_config_new_basic() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "myapp",
             "app.example.com",
             "http://127.0.0.1:3000",
@@ -393,9 +700,11 @@ mod tests {
             None,
         );
         assert_eq!(cfg.route_name(), Some("myapp"));
+        assert_eq!(cfg.protocol(), "http");
         assert_eq!(cfg.host(), Some("app.example.com".to_string()));
         assert_eq!(cfg.backend_url(), Some("http://127.0.0.1:3000"));
-        let router = cfg.http.routers.get("myapp").unwrap();
+        let http = cfg.http.as_ref().unwrap();
+        let router = http.routers.get("myapp").unwrap();
         assert_eq!(router.rule, "Host(`app.example.com`)");
         assert_eq!(router.entry_points, vec!["web"]);
         assert_eq!(router.service, "myapp");
@@ -405,28 +714,30 @@ mod tests {
 
     #[test]
     fn dynamic_config_new_with_tls() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "secure",
             "sec.example.com",
             "https://backend:8443",
             vec!["web".into(), "websecure".into()],
             Some(RouterTls {
-                cert_resolver: "letsencrypt".to_string(),
+                cert_resolver: Some("letsencrypt".to_string()),
+                ..Default::default()
             }),
             None,
         );
-        let router = cfg.http.routers.get("secure").unwrap();
+        let http = cfg.http.as_ref().unwrap();
+        let router = http.routers.get("secure").unwrap();
         assert!(router.tls.is_some());
         assert_eq!(
             router.tls.as_ref().unwrap().cert_resolver,
-            "letsencrypt"
+            Some("letsencrypt".to_string())
         );
         assert_eq!(router.entry_points, vec!["web", "websecure"]);
     }
 
     #[test]
     fn dynamic_config_new_with_middlewares() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "mw-test",
             "mw.example.com",
             "http://localhost:4000",
@@ -434,7 +745,8 @@ mod tests {
             None,
             Some(vec!["headers".into(), "rate-limit".into()]),
         );
-        let router = cfg.http.routers.get("mw-test").unwrap();
+        let http = cfg.http.as_ref().unwrap();
+        let router = http.routers.get("mw-test").unwrap();
         assert_eq!(
             router.middlewares.as_ref().unwrap(),
             &vec!["headers".to_string(), "rate-limit".to_string()]
@@ -443,13 +755,14 @@ mod tests {
 
     #[test]
     fn dynamic_config_to_yaml_camelcase() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "demo",
             "demo.test.io",
             "http://127.0.0.1:5000",
             vec!["web".into(), "websecure".into()],
             Some(RouterTls {
-                cert_resolver: "letsencrypt".to_string(),
+                cert_resolver: Some("letsencrypt".to_string()),
+                ..Default::default()
             }),
             Some(vec!["headers".into()]),
         );
@@ -465,7 +778,7 @@ mod tests {
 
     #[test]
     fn dynamic_config_yaml_roundtrip() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "roundtrip",
             "rt.example.com",
             "http://10.0.0.1:9090",
@@ -482,22 +795,24 @@ mod tests {
 
     #[test]
     fn dynamic_config_tls_yaml_roundtrip() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "tls-rt",
             "tls.example.com",
             "https://back:443",
             vec!["websecure".into()],
             Some(RouterTls {
-                cert_resolver: "myresolver".to_string(),
+                cert_resolver: Some("myresolver".to_string()),
+                ..Default::default()
             }),
             Some(vec!["auth".into()]),
         );
         let yaml = cfg.to_yaml().unwrap();
         let parsed: TraefikDynamicConfig = serde_yaml::from_str(&yaml).unwrap();
-        let router = parsed.http.routers.get("tls-rt").unwrap();
+        let http = parsed.http.as_ref().unwrap();
+        let router = http.routers.get("tls-rt").unwrap();
         assert_eq!(
             router.tls.as_ref().unwrap().cert_resolver,
-            "myresolver"
+            Some("myresolver".to_string())
         );
         assert_eq!(
             router.middlewares.as_ref().unwrap(),
@@ -507,7 +822,7 @@ mod tests {
 
     #[test]
     fn dynamic_config_btreemap_deterministic_order() {
-        let cfg = TraefikDynamicConfig::new(
+        let cfg = TraefikDynamicConfig::new_http(
             "zzz",
             "z.example.com",
             "http://z:1",
@@ -522,7 +837,7 @@ mod tests {
 
     #[test]
     fn host_parsing_non_standard_rule() {
-        let mut cfg = TraefikDynamicConfig::new(
+        let mut cfg = TraefikDynamicConfig::new_http(
             "weird",
             "x.io",
             "http://x:1",
@@ -530,8 +845,101 @@ mod tests {
             None,
             None,
         );
-        cfg.http.routers.get_mut("weird").unwrap().rule = "PathPrefix(`/api`)".to_string();
+        cfg.http.as_mut().unwrap().routers.get_mut("weird").unwrap().rule =
+            "PathPrefix(`/api`)".to_string();
         assert_eq!(cfg.host(), None);
+    }
+
+    #[test]
+    fn tcp_config_new_basic() {
+        let cfg = TraefikDynamicConfig::new_tcp(
+            "postgres",
+            "HostSNI(`*`)",
+            "10.0.0.1:5432",
+            vec!["postgres".into()],
+            None,
+        );
+        assert_eq!(cfg.route_name(), Some("postgres"));
+        assert_eq!(cfg.protocol(), "tcp");
+        assert_eq!(cfg.tcp_rule(), Some("HostSNI(`*`)"));
+        assert_eq!(cfg.backend_address(), Some("10.0.0.1:5432"));
+        assert!(cfg.http.is_none());
+        assert!(cfg.udp.is_none());
+    }
+
+    #[test]
+    fn tcp_config_with_tls_passthrough() {
+        let cfg = TraefikDynamicConfig::new_tcp(
+            "db",
+            "HostSNI(`db.example.com`)",
+            "10.0.0.1:5432",
+            vec!["websecure".into()],
+            Some(TcpRouterTls {
+                passthrough: Some(true),
+                ..Default::default()
+            }),
+        );
+        let yaml = cfg.to_yaml().unwrap();
+        assert!(yaml.contains("tcp:"));
+        assert!(yaml.contains("HostSNI(`db.example.com`)"));
+        assert!(yaml.contains("passthrough: true"));
+    }
+
+    #[test]
+    fn tcp_config_yaml_roundtrip() {
+        let cfg = TraefikDynamicConfig::new_tcp(
+            "redis",
+            "HostSNI(`*`)",
+            "10.0.0.2:6379",
+            vec!["redis".into()],
+            None,
+        );
+        let yaml = cfg.to_yaml().unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.route_name(), Some("redis"));
+        assert_eq!(parsed.protocol(), "tcp");
+        assert_eq!(parsed.backend_address(), Some("10.0.0.2:6379"));
+    }
+
+    #[test]
+    fn udp_config_new_basic() {
+        let cfg = TraefikDynamicConfig::new_udp(
+            "dns",
+            "10.0.0.53:53",
+            vec!["dns".into()],
+        );
+        assert_eq!(cfg.route_name(), Some("dns"));
+        assert_eq!(cfg.protocol(), "udp");
+        assert_eq!(cfg.backend_address(), Some("10.0.0.53:53"));
+        assert!(cfg.http.is_none());
+        assert!(cfg.tcp.is_none());
+    }
+
+    #[test]
+    fn udp_config_yaml_roundtrip() {
+        let cfg = TraefikDynamicConfig::new_udp(
+            "syslog",
+            "10.0.0.10:514",
+            vec!["syslog".into()],
+        );
+        let yaml = cfg.to_yaml().unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.route_name(), Some("syslog"));
+        assert_eq!(parsed.protocol(), "udp");
+        assert_eq!(parsed.backend_address(), Some("10.0.0.10:514"));
+    }
+
+    #[test]
+    fn udp_config_no_rule_in_yaml() {
+        let cfg = TraefikDynamicConfig::new_udp(
+            "dns",
+            "10.0.0.53:53",
+            vec!["dns".into()],
+        );
+        let yaml = cfg.to_yaml().unwrap();
+        assert!(!yaml.contains("rule:"));
+        assert!(yaml.contains("udp:"));
+        assert!(yaml.contains("entryPoints:"));
     }
 
     #[test]

@@ -20,10 +20,11 @@ pub fn execute(dir: &Path) -> Result<()> {
         .with_context(|| format!("failed to read directory {}", dir.display()))?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "yml" || ext == "yaml")
-                .unwrap_or(false)
+            e.path().is_file()
+                && e.path()
+                    .extension()
+                    .map(|ext| ext == "yml" || ext == "yaml")
+                    .unwrap_or(false)
         })
         .collect();
 
@@ -81,40 +82,17 @@ pub fn execute(dir: &Path) -> Result<()> {
                 }
             };
 
+            let protocol = config.protocol();
             let name = config.route_name().unwrap_or("?");
-            let host = config.host().unwrap_or_else(|| "?".to_string());
-            let url = config.backend_url().unwrap_or("?");
 
-            let eps: Vec<&str> = config
-                .http
-                .routers
-                .values()
-                .next()
-                .map(|r| r.entry_points.iter().map(|s| s.as_str()).collect())
-                .unwrap_or_default();
-
-            let tls_badge = if config
-                .http
-                .routers
-                .values()
-                .next()
-                .and_then(|r| r.tls.as_ref())
-                .is_some()
-            {
-                " 🔒"
-            } else {
-                ""
-            };
-
-            println!(
-                "  {} {} → {} → {} [{}]{}",
-                "▸".dimmed(),
-                name.cyan().bold(),
-                host.yellow(),
-                url.blue(),
-                eps.join(", "),
-                tls_badge
-            );
+            match protocol {
+                "http" => print_http_route(&config, name),
+                "tcp" => print_tcp_route(&config, name),
+                "udp" => print_udp_route(&config, name),
+                _ => {
+                    println!("  {} {} (unknown protocol)", "▸".dimmed(), name.cyan().bold());
+                }
+            }
         }
         println!();
     }
@@ -170,6 +148,96 @@ pub fn execute(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn print_http_route(config: &TraefikDynamicConfig, name: &str) {
+    let host = config.host().unwrap_or_else(|| "?".to_string());
+    let url = config.backend_url().unwrap_or("?");
+
+    let eps: Vec<&str> = config
+        .http
+        .as_ref()
+        .and_then(|h| h.routers.values().next())
+        .map(|r| r.entry_points.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
+    let tls_badge = if config
+        .http
+        .as_ref()
+        .and_then(|h| h.routers.values().next())
+        .and_then(|r| r.tls.as_ref())
+        .is_some()
+    {
+        " 🔒"
+    } else {
+        ""
+    };
+
+    println!(
+        "  {} [{}] {} → {} → {} [{}]{}",
+        "▸".dimmed(),
+        "HTTP".cyan(),
+        name.cyan().bold(),
+        host.yellow(),
+        url.blue(),
+        eps.join(", "),
+        tls_badge
+    );
+}
+
+fn print_tcp_route(config: &TraefikDynamicConfig, name: &str) {
+    let rule = config.tcp_rule().unwrap_or("?");
+    let addr = config.backend_address().unwrap_or("?");
+
+    let eps: Vec<&str> = config
+        .tcp
+        .as_ref()
+        .and_then(|t| t.routers.values().next())
+        .map(|r| r.entry_points.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
+    let tls_badge = if config
+        .tcp
+        .as_ref()
+        .and_then(|t| t.routers.values().next())
+        .and_then(|r| r.tls.as_ref())
+        .is_some()
+    {
+        " 🔒"
+    } else {
+        ""
+    };
+
+    println!(
+        "  {} [{}] {} → {} → {} [{}]{}",
+        "▸".dimmed(),
+        "TCP".magenta(),
+        name.cyan().bold(),
+        rule.yellow(),
+        addr.blue(),
+        eps.join(", "),
+        tls_badge
+    );
+}
+
+fn print_udp_route(config: &TraefikDynamicConfig, name: &str) {
+    let addr = config.backend_address().unwrap_or("?");
+
+    let eps: Vec<&str> = config
+        .udp
+        .as_ref()
+        .and_then(|u| u.routers.values().next())
+        .map(|r| r.entry_points.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
+    println!(
+        "  {} [{}] {} → {} [{}]",
+        "▸".dimmed(),
+        "UDP".green(),
+        name.cyan().bold(),
+        addr.blue(),
+        eps.join(", "),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,10 +250,22 @@ mod tests {
         fs::write(dir.join(format!("{name}.yml")), yaml).unwrap();
     }
 
-    fn write_middleware(dir: &Path, name: &str) {
+    fn write_tcp_route(dir: &Path, name: &str) {
         let yaml = format!(
-            "http:\n  middlewares:\n    {name}:\n      compress: {{}}\n"
+            "tcp:\n  routers:\n    {name}:\n      rule: \"HostSNI(`*`)\"\n      entryPoints:\n      - postgres\n      service: {name}\n  services:\n    {name}:\n      loadBalancer:\n        servers:\n        - address: 10.0.0.5:5432\n"
         );
+        fs::write(dir.join(format!("{name}.yml")), yaml).unwrap();
+    }
+
+    fn write_udp_route(dir: &Path, name: &str) {
+        let yaml = format!(
+            "udp:\n  routers:\n    {name}:\n      entryPoints:\n      - dns\n      service: {name}\n  services:\n    {name}:\n      loadBalancer:\n        servers:\n        - address: 10.0.0.2:53\n"
+        );
+        fs::write(dir.join(format!("{name}.yml")), yaml).unwrap();
+    }
+
+    fn write_middleware(dir: &Path, name: &str) {
+        let yaml = format!("http:\n  middlewares:\n    {name}:\n      compress: {{}}\n");
         fs::write(dir.join(format!("mw-{name}.yml")), yaml).unwrap();
     }
 
@@ -236,6 +316,30 @@ mod tests {
     fn list_handles_malformed_yaml_gracefully() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("bad.yml"), "not: [valid: yaml: config").unwrap();
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_tcp_routes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_tcp_route(dir.path(), "postgres");
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_udp_routes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_udp_route(dir.path(), "dns");
+        execute(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn list_mixed_protocols() {
+        let dir = tempfile::tempdir().unwrap();
+        write_route(dir.path(), "webapp");
+        write_tcp_route(dir.path(), "postgres");
+        write_udp_route(dir.path(), "dns");
+        write_middleware(dir.path(), "headers");
         execute(dir.path()).unwrap();
     }
 }

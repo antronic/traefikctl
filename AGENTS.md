@@ -9,25 +9,29 @@ Single-binary CLI. No runtime, no daemon, no database.
 ```
 src/
 ├── main.rs               # Entry point, CLI dispatch, pre-mutation doctor check, post-command reload
-├── cli.rs                # clap derive structs (Cli + Commands enum + MiddlewareType)
-├── config.rs             # Traefik dynamic + static + middleware config types (serde)
+├── cli.rs                # clap derive structs (Cli + Commands enum + MiddlewareType + Protocol + ServicePreset + InitAcme + InitCa + AddCert)
+├── config.rs             # Traefik dynamic (HTTP/TCP/UDP) + static + middleware + ACME + TLS config types (serde)
 ├── validation.rs         # Host, URL, and name validation (with unit tests)
 ├── traefik.rs            # systemctl reload/restart wrapper
 └── commands/
     ├── mod.rs
-    ├── add.rs            # Create route YAML file (idempotent with --force)
+    ├── add.rs            # Create route YAML file (HTTP/TCP/UDP, presets, idempotent with --force)
     ├── add_middleware.rs  # Create middleware YAML file (headers, rate-limit, etc.)
     ├── remove.rs         # Delete route file (confirmation prompt unless --force)
     ├── remove_middleware.rs # Delete middleware file
     ├── list.rs           # Read + parse all .yml files, print routes + middlewares
     ├── update.rs         # Partial update of existing route file
-    └── doctor.rs         # Check/fix Traefik static config + ensure conf.d dir exists
+    ├── init_acme.rs      # Set up ACME certificate resolver (DNS-01 challenge) in static config
+    ├── init_ca.rs        # Import self-signed CA certs, configure TLS default store + mTLS
+    ├── add_cert.rs       # Add per-service TLS certificate to existing route
+    └── doctor.rs         # Check/fix Traefik static config + ensure conf.d dir exists + ACME status
 ```
 
 ## Key patterns
 
 - **One file per route**: `<dir>/<name>.yml` — Traefik watches the directory.
 - **One file per middleware**: `<dir>/mw-<name>.yml` — same directory, `mw-` prefix distinguishes from routes.
+- **TLS configs in subdirectory**: `<dir>/tls/tls-default.yml` — separates TLS-only files from routes. Traefik watches subdirectories recursively.
 - **serde camelCase**: `#[serde(rename_all = "camelCase")]` matches Traefik's Go YAML tags (`entryPoints`, `loadBalancer`, `certResolver`).
 - **BTreeMap for deterministic output**: Routers/services use BTreeMap so YAML key order is stable.
 - **Validation before mutation**: All inputs validated (validate_name, validate_host, validate_url) before any filesystem writes.
@@ -64,6 +68,35 @@ http:
       loadBalancer:
         servers:
           - url: <backend-url>
+```
+
+```yaml
+tcp:
+  routers:
+    <name>:
+      rule: "HostSNI(`<host>`)"   # or HostSNI(`*`) when no --host
+      entryPoints: [<entrypoint>]
+      service: <name>
+      tls:                        # only when --tls
+        passthrough: true         # only when --tls-passthrough
+  services:
+    <name>:
+      loadBalancer:
+        servers:
+          - address: "<host>:<port>"
+```
+
+```yaml
+udp:
+  routers:
+    <name>:                       # no rule field for UDP
+      entryPoints: [<entrypoint>]
+      service: <name>
+  services:
+    <name>:
+      loadBalancer:
+        servers:
+          - address: "<host>:<port>"
 ```
 
 ## Rules

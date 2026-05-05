@@ -69,6 +69,42 @@ pub fn validate_url(raw: &str) -> Result<()> {
     Ok(())
 }
 
+/// Validate a TCP/UDP backend address (host:port format).
+pub fn validate_address(addr: &str) -> Result<()> {
+    let addr = addr.trim();
+
+    if addr.is_empty() {
+        bail!("backend address cannot be empty");
+    }
+
+    let parts: Vec<&str> = addr.rsplitn(2, ':').collect();
+    if parts.len() != 2 {
+        bail!("backend address must be in host:port format (e.g. 127.0.0.1:5432): {addr:?}");
+    }
+
+    let port_str = parts[0];
+    let host = parts[1];
+
+    if host.is_empty() {
+        bail!("backend address is missing host: {addr:?}");
+    }
+
+    let port: u16 = port_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid port number in address {addr:?}"))?;
+
+    if port == 0 {
+        bail!("port cannot be 0 in address {addr:?}");
+    }
+
+    // Allow IP addresses and hostnames
+    if host.chars().any(|c| c.is_whitespace()) {
+        bail!("address host cannot contain whitespace: {addr:?}");
+    }
+
+    Ok(())
+}
+
 /// Validate a service/route name (alphanumeric, hyphens, underscores).
 pub fn validate_name(name: &str) -> Result<()> {
     let name = name.trim();
@@ -132,6 +168,25 @@ mod tests {
         assert!(validate_name("my-app").is_ok());
         assert!(validate_name("web_service_1").is_ok());
         assert!(validate_name("api").is_ok());
+    }
+
+    #[test]
+    fn valid_addresses() {
+        assert!(validate_address("127.0.0.1:5432").is_ok());
+        assert!(validate_address("postgres.local:5432").is_ok());
+        assert!(validate_address("192.168.1.100:6379").is_ok());
+        assert!(validate_address("[::1]:8080").is_ok());
+    }
+
+    #[test]
+    fn invalid_addresses() {
+        assert!(validate_address("").is_err());
+        assert!(validate_address("no-port").is_err());
+        assert!(validate_address(":5432").is_err());
+        assert!(validate_address("host:0").is_err());
+        assert!(validate_address("host:99999").is_err());
+        assert!(validate_address("host:abc").is_err());
+        assert!(validate_address("has space:80").is_err());
     }
 
     #[test]

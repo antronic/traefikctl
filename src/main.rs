@@ -20,8 +20,10 @@ fn main() -> Result<()> {
             | Commands::Update { .. }
             | Commands::AddMiddleware { .. }
             | Commands::RemoveMiddleware { .. }
+            | Commands::AddCert { .. }
     );
 
+    // init-acme modifies static config directly, skip doctor for it
     if is_mutating && !cli.dry_run {
         commands::doctor::ensure_setup(&cli.dir, cli.traefik_config.as_deref(), false)?;
     }
@@ -31,19 +33,27 @@ fn main() -> Result<()> {
             name,
             host,
             url,
+            address,
             entrypoint,
+            protocol,
+            preset,
             tls,
+            tls_passthrough,
             cert_resolver,
             middlewares,
         } => commands::add::execute(
             &cli.dir,
             commands::add::AddOptions {
                 name,
-                host,
-                url,
-                entrypoint,
+                host: host.as_deref(),
+                url: url.as_deref(),
+                address: address.as_deref(),
+                entrypoint: entrypoint.as_deref(),
+                protocol: *protocol,
+                preset: *preset,
                 tls: *tls,
-                cert_resolver,
+                tls_passthrough: *tls_passthrough,
+                cert_resolver: cert_resolver.as_deref(),
                 middlewares: middlewares.as_deref(),
                 force: cli.force,
                 dry_run: cli.dry_run,
@@ -126,6 +136,69 @@ fn main() -> Result<()> {
             &cli.dir,
             commands::remove_middleware::RemoveMiddlewareOptions {
                 name,
+                force: cli.force,
+                dry_run: cli.dry_run,
+            },
+        ),
+
+        Commands::InitAcme {
+            resolver_name,
+            email,
+            provider,
+            staging,
+            storage,
+            dns_resolvers,
+            key_type,
+            propagation_delay,
+            disable_propagation_check,
+        } => commands::init_acme::execute(commands::init_acme::InitAcmeOptions {
+            resolver_name,
+            email,
+            provider,
+            staging: *staging,
+            storage,
+            dns_resolvers,
+            key_type: key_type.as_deref(),
+            propagation_delay: *propagation_delay,
+            disable_propagation_check: *disable_propagation_check,
+            force: cli.force,
+            dry_run: cli.dry_run,
+            traefik_config: cli.traefik_config.as_deref(),
+        }),
+
+        Commands::InitCa {
+            ca_cert,
+            intermediate_cert,
+            cert,
+            key,
+            certs_dir,
+            mtls,
+            min_version,
+        } => commands::init_ca::execute(commands::init_ca::InitCaOptions {
+            ca_cert,
+            intermediate_cert: intermediate_cert.as_deref(),
+            cert,
+            key,
+            certs_dir,
+            mtls: *mtls,
+            min_version: min_version.as_deref(),
+            force: cli.force,
+            dry_run: cli.dry_run,
+            conf_dir: &cli.dir,
+        }),
+
+        Commands::AddCert {
+            name,
+            cert,
+            key,
+            certs_dir,
+        } => commands::add_cert::execute(
+            &cli.dir,
+            commands::add_cert::AddCertOptions {
+                name,
+                cert,
+                key,
+                certs_dir,
                 force: cli.force,
                 dry_run: cli.dry_run,
             },
